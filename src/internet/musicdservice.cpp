@@ -356,9 +356,17 @@ Song MusicdService::ExtractSong(const QVariantMap& result_song) {
     QString title = result_song["title"].toString();
     song.set_title(title);
 
+    QString album = result_song["album"].toString();
+    song.set_album(album);
+
     QVariant q_duration = result_song["duration"];
     quint64 duration = q_duration.toULongLong() * kNsecPerSec;
     song.set_length_nanosec(duration);
+
+    bool track_ok = false;
+    int track = result_song["track"].toInt(&track_ok);
+    if(track_ok)
+      song.set_track(track);
 
     song.set_valid(true);
 
