@@ -22,6 +22,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
+#include <QSortFilterProxyModel>
 
 #include <qjson/parser.h>
 #include <qjson/serializer.h>
@@ -30,6 +31,7 @@
 #include "searchboxwidget.h"
 
 #include "core/application.h"
+#include "core/database.h"
 #include "core/closure.h"
 #include "core/logging.h"
 #include "core/mergedproxymodel.h"
@@ -41,10 +43,15 @@
 #include "globalsearch/globalsearch.h"
 #include "globalsearch/musicdsearchprovider.h"
 #include "ui/iconloader.h"
+#include "library/librarymodel.h"
+#include "library/librarybackend.h"
+#include "library/libraryfilterwidget.h"
 
 const char* MusicdService::kServiceName = "Musicd";
 const char* MusicdService::kSettingsGroup = "Musicd";
 const char* MusicdService::kDefaultServerAddress = "http://localhost:6800";
+const char* MusicdService::kSongsTable = "musicd_songs";
+const char* MusicdService::kFtsTable = "musicd_songs_fts";
 
 const int MusicdService::kSearchDelayMsec = 400;
 const int MusicdService::kSongSearchLimit = 100;
@@ -55,13 +62,20 @@ typedef QPair<QString, QString> Param;
 MusicdService::MusicdService(Application* app, InternetModel *parent)
   : InternetService(kServiceName, app, parent, parent),
     root_(NULL),
-    search_(NULL),
-    network_(new NetworkAccessManager(this)),
     context_menu_(NULL),
+    search_(NULL),
     search_box_(new SearchBoxWidget(this)),
     search_delay_(new QTimer(this)),
-    next_pending_search_id_(0) {
+    next_pending_search_id_(0),
+    library_backend_(NULL),
+    library_model_(NULL),
+    library_filter_(NULL),
+    library_sort_model_(new QSortFilterProxyModel(this)),
+    load_database_task_id_(0),
+    total_song_count_(0),
+    network_(new NetworkAccessManager(this)) {
 
+  // Direct search
   search_delay_->setInterval(kSearchDelayMsec);
   search_delay_->setSingleShot(true);
   connect(search_delay_, SIGNAL(timeout()), SLOT(DoSearch()));
@@ -71,10 +85,33 @@ MusicdService::MusicdService(Application* app, InternetModel *parent)
   app_->global_search()->AddProvider(search_provider);
 
   connect(search_box_, SIGNAL(TextChanged(QString)), SLOT(Search(QString)));
+
+  // Library interface
+  library_backend_ = new LibraryBackend;
+  library_backend_->moveToThread(app_->database()->thread());
+  library_backend_->Init(app_->database(), kSongsTable,
+                         QString::null, QString::null, kFtsTable);
+  library_model_ = new LibraryModel(library_backend_, app_, this);
+
+  connect(library_backend_, SIGNAL(TotalSongCountUpdated(int)),
+          SLOT(UpdateTotalSongCount(int)));
+
+  library_sort_model_->setSourceModel(library_model_);
+  library_sort_model_->setSortRole(LibraryModel::Role_SortText);
+  library_sort_model_->setDynamicSortFilter(true);
+  library_sort_model_->sort(0);
+
+  /*app_->global_search()->AddProvider(new LibrarySearchProvider(
+      library_backend_,
+      tr("Musicd (library)"),
+      "musicd",
+      QIcon(":/providers/musicd.png"),
+      true, app_, this));*/
 }
 
 
 MusicdService::~MusicdService() {
+  delete context_menu_;
 }
 
 void MusicdService::ReloadSettings() {
@@ -96,11 +133,52 @@ void MusicdService::LazyPopulate(QStandardItem* item) {
   switch (item->data(InternetModel::Role_Type).toInt()) {
     case InternetModel::Type_Service: {
       EnsureItemsCreated();
+      model()->merged_model()->AddSubModel(item->index(), library_sort_model_);
       break;
     }
     default:
       break;
   }
+}
+
+void MusicdService::UpdateTotalSongCount(int count) {
+  total_song_count_ = count;
+  if (total_song_count_ == 0 && !load_database_task_id_) {
+    ReloadDatabase();
+  }
+}
+
+void MusicdService::ReloadDatabase() {
+  if(!load_database_task_id_){
+    QList<Param> parameters;
+    //parameters << Param("limit", "3"); // for testing
+    QNetworkReply* reply = CreateRequest("tracks", parameters);
+    NewClosure(reply, SIGNAL(finished()),
+               this, SLOT(ReloadDatabaseFinished(QNetworkReply*)),
+               reply);
+    load_database_task_id_ = app_->task_manager()->StartTask(
+        tr("Downloading Musicd database"));
+  }
+}
+
+void MusicdService::ReloadDatabaseFinished(QNetworkReply* reply) {
+  app_->task_manager()->SetTaskFinished(load_database_task_id_);
+  load_database_task_id_ = 0;
+
+  if (reply->error() != QNetworkReply::NoError) {
+    // TODO: Error handling
+    qLog(Error) << reply->errorString();
+    return;
+  }
+
+  // Remove all existing songs in the database
+  library_backend_->DeleteAll();
+
+  // Parse result
+  SongList songs = ExtractSongs(ExtractResult(reply));
+
+  // Add the songs to the database
+  library_backend_->AddOrUpdateSongs(songs);
 }
 
 void MusicdService::EnsureItemsCreated() {
@@ -114,7 +192,9 @@ void MusicdService::EnsureItemsCreated() {
 }
 
 QWidget* MusicdService::HeaderWidget() const {
-  return search_box_;
+  const_cast<MusicdService*>(this)->EnsureMenuCreated();
+  return library_filter_;
+  //return search_box_;
 }
 
 void MusicdService::Search(const QString& text, bool now) {
@@ -190,10 +270,23 @@ void MusicdService::SimpleSearchFinished(QNetworkReply* reply, int id) {
 }
 
 void MusicdService::EnsureMenuCreated() {
-  if(!context_menu_) {
-    context_menu_ = new QMenu;
-    context_menu_->addActions(GetPlaylistActions());
-  }
+  if(context_menu_)
+    return;
+  context_menu_ = new QMenu;
+  context_menu_->addActions(GetPlaylistActions());
+  context_menu_->addSeparator();
+  context_menu_->addAction(IconLoader::Load("view-refresh"), tr("Refresh library"), this, SLOT(ReloadDatabase()));
+  QAction* config_action = context_menu_->addAction(IconLoader::Load("configure"), tr("Configure Musicd..."), this, SLOT(ShowConfig()));
+
+  library_filter_ = new LibraryFilterWidget(0);
+  library_filter_->SetSettingsGroup(kSettingsGroup);
+  library_filter_->SetLibraryModel(library_model_);
+  library_filter_->SetFilterHint(tr("Search Musicd"));
+  library_filter_->SetAgeFilterEnabled(false);
+  library_filter_->AddMenuAction(config_action);
+
+  context_menu_->addSeparator();
+  context_menu_->addMenu(library_filter_->menu());
 }
 
 void MusicdService::ShowContextMenu(const QPoint& global_pos) {
@@ -253,11 +346,11 @@ Song MusicdService::ExtractSong(const QVariantMap& result_song) {
   if (!result_song.isEmpty()) {
   	QString id = result_song["id"].toString();
     QUrl stream_url(server_address_);
-	stream_url.setPath("open");
-	stream_url.addQueryItem("id", id);
+    stream_url.setPath("open");
+    stream_url.addQueryItem("id", id);
     song.set_url(stream_url);
 
-	QString artist = result_song["artist"].toString();
+    QString artist = result_song["artist"].toString();
     song.set_artist(artist);
 
     QString title = result_song["title"].toString();
@@ -268,6 +361,17 @@ Song MusicdService::ExtractSong(const QVariantMap& result_song) {
     song.set_length_nanosec(duration);
 
     song.set_valid(true);
+
+    // We need to set these to satisfy the database constraints
+    song.set_directory_id(0);
+    song.set_mtime(0);
+    song.set_ctime(0);
+    song.set_filesize(0);
   }
   return song;
 }
+
+void MusicdService::ShowConfig() {
+  app_->OpenSettingsDialogAtPage(SettingsDialog::Page_Musicd);
+}
+

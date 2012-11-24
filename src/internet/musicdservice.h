@@ -23,6 +23,7 @@
 
 class NetworkAccessManager;
 class SearchBoxWidget;
+class QSortFilterProxyModel;
 
 class QMenu;
 class QNetworkReply;
@@ -48,15 +49,23 @@ class MusicdService : public InternetService {
   static const char* kServiceName;
   static const char* kSettingsGroup;
   static const char* kDefaultServerAddress;
+  static const char* kSongsTable;
+  static const char* kFtsTable;
 
  signals:
   void SimpleSearchResults(int id, SongList songs);
 
  private slots:
+  void UpdateTotalSongCount(int count);
+  void ReloadDatabase();
+  void ReloadDatabaseFinished(QNetworkReply* reply);
+
   void Search(const QString& text, bool now = false);
   void DoSearch();
   void SearchFinished(QNetworkReply* reply, int task);
   void SimpleSearchFinished(QNetworkReply* reply, int id);
+
+  void ShowConfig();
 
  private:
   void ClearSearchResults();
@@ -70,15 +79,24 @@ class MusicdService : public InternetService {
   Song ExtractSong(const QVariantMap& result_song);
 
   QStandardItem* root_;
-  QStandardItem* search_;
-
-  NetworkAccessManager* network_;
-
   QMenu* context_menu_;
+
+  // Direct search
+  QStandardItem* search_;
   SearchBoxWidget* search_box_;
   QTimer* search_delay_;
   QString pending_search_;
   int next_pending_search_id_;
+
+  // Library interface
+  LibraryBackend* library_backend_;
+  LibraryModel* library_model_;
+  LibraryFilterWidget* library_filter_;
+  QSortFilterProxyModel* library_sort_model_;
+  int load_database_task_id_;
+  int total_song_count_;
+
+  NetworkAccessManager* network_;
 
   QString server_address_;
 
