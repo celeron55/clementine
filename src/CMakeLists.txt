@@ -191,6 +191,7 @@ set(SOURCES
   internet/somafmservice.cpp
   internet/somafmurlhandler.cpp
   internet/soundcloudservice.cpp
+  internet/musicdsettingspage.cpp
   internet/musicdservice.cpp
 
   library/groupbydialog.cpp
@@ -468,6 +469,7 @@ set(HEADERS
   internet/somafmservice.h
   internet/somafmurlhandler.h
   internet/soundcloudservice.h
+  internet/musicdsettingspage.h
   internet/musicdservice.h
 
   library/groupbydialog.h
@@ -644,6 +646,7 @@ set(UI
   internet/magnatunesettingspage.ui
   internet/searchboxwidget.ui
   internet/spotifysettingspage.ui
+  internet/musicdsettingspage.ui
 
   library/groupbydialog.ui
   library/libraryfilterwidget.ui

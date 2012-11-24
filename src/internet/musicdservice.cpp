@@ -44,7 +44,7 @@
 
 const char* MusicdService::kServiceName = "Musicd";
 const char* MusicdService::kSettingsGroup = "Musicd";
-const char* MusicdService::kUrl = "http://localhost:6800";
+const char* MusicdService::kDefaultServerAddress = "http://localhost:6800";
 
 const int MusicdService::kSearchDelayMsec = 400;
 const int MusicdService::kSongSearchLimit = 100;
@@ -75,6 +75,13 @@ MusicdService::MusicdService(Application* app, InternetModel *parent)
 
 
 MusicdService::~MusicdService() {
+}
+
+void MusicdService::ReloadSettings() {
+  QSettings s;
+  s.beginGroup(kSettingsGroup);
+
+  server_address_ = s.value("server_address", kDefaultServerAddress).toString();
 }
 
 QStandardItem* MusicdService::CreateRootItem() {
@@ -199,7 +206,7 @@ QNetworkReply* MusicdService::CreateRequest(
     const QString& ressource_name,
     const QList<Param>& params) {
 
-  QUrl url(kUrl);
+  QUrl url(server_address_);
 
   url.setPath(ressource_name);
 
@@ -245,7 +252,7 @@ Song MusicdService::ExtractSong(const QVariantMap& result_song) {
   Song song;
   if (!result_song.isEmpty()) {
   	QString id = result_song["id"].toString();
-    QUrl stream_url(kUrl);
+    QUrl stream_url(server_address_);
 	stream_url.setPath("open");
 	stream_url.addQueryItem("id", id);
     song.set_url(stream_url);

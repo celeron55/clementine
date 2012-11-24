@@ -34,6 +34,7 @@ class MusicdService : public InternetService {
   ~MusicdService();
 
   // Internet Service methods
+  void ReloadSettings();
   QStandardItem* CreateRootItem();
   void LazyPopulate(QStandardItem *parent);
 
@@ -46,6 +47,7 @@ class MusicdService : public InternetService {
 
   static const char* kServiceName;
   static const char* kSettingsGroup;
+  static const char* kDefaultServerAddress;
 
  signals:
   void SimpleSearchResults(int id, SongList songs);
@@ -78,10 +80,7 @@ class MusicdService : public InternetService {
   QString pending_search_;
   int next_pending_search_id_;
 
-  QByteArray api_key_;
-
-  static const char* kUrl;
-  static const char* kUrlCover;
+  QString server_address_;
 
   static const int kSongSearchLimit;
   static const int kSongSimpleSearchLimit;

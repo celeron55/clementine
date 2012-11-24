@@ -37,6 +37,7 @@
 #include "internet/digitallyimportedsettingspage.h"
 #include "internet/groovesharksettingspage.h"
 #include "internet/magnatunesettingspage.h"
+#include "internet/musicdsettingspage.h"
 #include "library/librarysettingspage.h"
 #include "playlist/playlistview.h"
 #include "podcasts/podcastsettingspage.h"
@@ -155,6 +156,7 @@ SettingsDialog::SettingsDialog(Application* app, BackgroundStreams* streams, QWi
   AddPage(Page_DigitallyImported, new DigitallyImportedSettingsPage(this), providers);
   AddPage(Page_BackgroundStreams, new BackgroundStreamsSettingsPage(this), providers);
   AddPage(Page_Podcasts, new PodcastSettingsPage(this), providers);
+  AddPage(Page_Musicd, new MusicdSettingsPage(this), providers);
 
   // List box
   connect(ui_->list, SIGNAL(currentItemChanged(QTreeWidgetItem*,QTreeWidgetItem*)),
