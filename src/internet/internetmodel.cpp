@@ -30,6 +30,7 @@
 #include "savedradio.h"
 #include "somafmservice.h"
 #include "soundcloudservice.h"
+#include "musicdservice.h"
 #include "core/closure.h"
 #include "core/logging.h"
 #include "core/mergedproxymodel.h"
@@ -82,6 +83,7 @@ InternetModel::InternetModel(Application* app, QObject* parent)
   AddService(new SkyFmService(app, this));
   AddService(new SomaFMService(app, this));
   AddService(new SoundCloudService(app, this));
+  AddService(new MusicdService(app, this));
 #ifdef HAVE_SPOTIFY
   AddService(new SpotifyService(app, this));
 #endif
